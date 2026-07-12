@@ -247,6 +247,12 @@ export async function reloadAllProjects() {
       let fileHandle = null;
       if (project.type === 'directory') {
         fileHandle = await project.handle.getFileHandle(project.fileName, { create: false });
+        // Re-read in case .mdtodo-sync.json changed since this project was
+        // connected — otherwise a config update would silently require a
+        // manual disconnect/reconnect to take effect.
+        const { pullUrl, pushUrl } = await readSyncConfig(project.handle);
+        project.pullUrl = pullUrl;
+        project.pushUrl = pushUrl;
       } else {
         fileHandle = project.handle;
       }
