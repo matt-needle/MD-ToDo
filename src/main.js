@@ -140,7 +140,8 @@ export async function addProjectHandle(handle, type = 'file') {
   let projectData = { title: label, preamble: [], columns: [], postamble: [], hasHeadings: false };
   let fileName = null;
   let activeFileHandle = null;
-  let syncUrl = null;
+  let pullUrl = null;
+  let pushUrl = null;
 
   if (permissionGranted) {
     try {
@@ -154,9 +155,10 @@ export async function addProjectHandle(handle, type = 'file') {
         activeFileHandle = todoDetails.fileHandle;
         // Only directory connections can discover a sibling sync config —
         // a bare file handle has no parent to look in. This is the
-        // isolation boundary: a project only gets a working Sync button if
-        // it explicitly declares its own endpoint via .mdtodo-sync.json.
-        syncUrl = await readSyncConfig(handle);
+        // isolation boundary: a project only gets working Pull/Push
+        // buttons if it explicitly declares its own endpoints via
+        // .mdtodo-sync.json.
+        ({ pullUrl, pushUrl } = await readSyncConfig(handle));
       } else {
         fileName = handle.name;
         activeFileHandle = handle;
@@ -183,7 +185,8 @@ export async function addProjectHandle(handle, type = 'file') {
     fileName,
     data: projectData,
     permissionGranted,
-    syncUrl
+    pullUrl,
+    pushUrl
   };
   
   state.projects.push(project);
@@ -268,7 +271,9 @@ export async function requestProjectPermission(project) {
       let fileHandle = null;
       if (project.type === 'directory') {
         fileHandle = await project.handle.getFileHandle(project.fileName, { create: false });
-        project.syncUrl = await readSyncConfig(project.handle);
+        const { pullUrl, pushUrl } = await readSyncConfig(project.handle);
+        project.pullUrl = pullUrl;
+        project.pushUrl = pushUrl;
       } else {
         fileHandle = project.handle;
       }
@@ -353,52 +358,59 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // Wire Sync button — only ever calls the endpoint(s) explicitly declared
-  // by the currently active project(s) via their own .mdtodo-sync.json, so
-  // syncing one board can never fire against a different project's data.
-  const syncBtn = document.getElementById('sync-btn');
-  if (syncBtn) {
-    syncBtn.addEventListener('click', async () => {
-      const activeSyncUrls = [...new Set(
+  // Wire Pull/Push buttons — each only ever calls the endpoint(s)
+  // explicitly declared by the currently active project(s) via their own
+  // .mdtodo-sync.json, so clicking one can never fire against a different
+  // project's data. Structurally identical apart from which URL property
+  // and button they use.
+  wireSyncButton('pull-btn', 'pullUrl', 'No pull endpoint configured', 'Pulling...', 'Pull unavailable');
+  wireSyncButton('push-btn', 'pushUrl', 'No push endpoint configured', 'Pushing...', 'Push unavailable');
+
+  function wireSyncButton(buttonId, urlProperty, noConfigMessage, busyMessage, failureMessage) {
+    const btn = document.getElementById(buttonId);
+    if (!btn) return;
+
+    btn.addEventListener('click', async () => {
+      const activeUrls = [...new Set(
         state.projects
-          .filter((p) => state.selectedProjectIds.includes(p.id) && p.permissionGranted && p.syncUrl)
-          .map((p) => p.syncUrl)
+          .filter((p) => state.selectedProjectIds.includes(p.id) && p.permissionGranted && p[urlProperty])
+          .map((p) => p[urlProperty])
       )];
 
-      const originalHTML = syncBtn.innerHTML;
+      const originalHTML = btn.innerHTML;
 
-      if (activeSyncUrls.length === 0) {
-        syncBtn.textContent = 'No sync configured';
-        setTimeout(() => { syncBtn.innerHTML = originalHTML; }, 2000);
+      if (activeUrls.length === 0) {
+        btn.textContent = noConfigMessage;
+        setTimeout(() => { btn.innerHTML = originalHTML; }, 2000);
         return;
       }
 
-      syncBtn.disabled = true;
-      syncBtn.textContent = 'Syncing...';
+      btn.disabled = true;
+      btn.textContent = busyMessage;
       try {
-        const results = await Promise.allSettled(activeSyncUrls.map((url) => fetch(url, { method: 'POST' })));
+        const results = await Promise.allSettled(activeUrls.map((url) => fetch(url, { method: 'POST' })));
         const failed = results.filter((r) => r.status === 'rejected' || !r.value.ok);
-        if (failed.length > 0) throw new Error(`${failed.length} of ${activeSyncUrls.length} sync endpoint(s) failed`);
-        // A 200 response can still carry a partial result (e.g. Firestore
-        // pull succeeded but the Azure DevOps push failed) — log it so
-        // it's visible in devtools even though the board still reloads.
+        if (failed.length > 0) throw new Error(`${failed.length} of ${activeUrls.length} endpoint(s) failed`);
+        // A 200 response can still carry a partial result (e.g. the script
+        // ran but hit an error partway through) — log it so it's visible
+        // in devtools even though the board still reloads.
         for (const r of results) {
           if (r.status !== 'fulfilled') continue;
           const body = await r.value.clone().json().catch(() => null);
-          if (body && !body.ok) console.warn('Sync completed with partial failure:', body);
+          if (body && !body.ok) console.warn(`${buttonId} completed with partial failure:`, body);
         }
         await reloadAllProjects();
       } catch (err) {
-        console.error('Sync failed:', err);
-        syncBtn.textContent = 'Sync unavailable';
+        console.error(`${buttonId} failed:`, err);
+        btn.textContent = failureMessage;
         setTimeout(() => {
-          syncBtn.innerHTML = originalHTML;
-          syncBtn.disabled = false;
+          btn.innerHTML = originalHTML;
+          btn.disabled = false;
         }, 2000);
         return;
       }
-      syncBtn.disabled = false;
-      syncBtn.innerHTML = originalHTML;
+      btn.disabled = false;
+      btn.innerHTML = originalHTML;
     });
   }
 });
