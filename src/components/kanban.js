@@ -20,6 +20,20 @@ function getColumnOrderValue(name) {
   return idx === -1 ? 999 : idx;
 }
 
+const PRIORITY_RANK = { critical: 0, high: 1, medium: 2, low: 3 };
+
+/**
+ * Ranks a task by its #priority-<level> tag (critical highest, then high,
+ * medium, low). Untagged tasks sort after all prioritized ones.
+ */
+function getPriorityRank(task) {
+  if (!task.tags) return 4;
+  const match = task.tags.map((t) => t.toLowerCase()).find((t) => /^#priority-(critical|high|medium|low)$/.test(t));
+  if (!match) return 4;
+  const level = match.replace('#priority-', '');
+  return PRIORITY_RANK[level] ?? 4;
+}
+
 /**
  * Renders the Kanban Board layout.
  */
@@ -230,8 +244,10 @@ export function renderBoard() {
     // Cards list container
     const cardsContainer = document.createElement('div');
     cardsContainer.className = 'cards-container';
-    
-    // Render Cards
+
+    // Render Cards, highest #priority-* tag first (stable sort keeps
+    // same-priority / untagged cards in their existing relative order)
+    colData.tasks.sort((a, b) => getPriorityRank(a.task) - getPriorityRank(b.task));
     colData.tasks.forEach(({ task, project }) => {
       const cardEl = renderTaskCard(task, project, colName);
       cardsContainer.appendChild(cardEl);

@@ -1,18 +1,14 @@
-import { 
-  getStoredProjects, 
-  removeStoredProject, 
+import {
+  getStoredProjects,
+  removeStoredProject,
   saveProjectHandle,
-  verifyPermission, 
-  readFileContent, 
+  verifyPermission,
+  readFileContent,
   writeFileContent,
-  scanDirectoryForTodo
+  scanDirectoryForTodo,
+  readSyncConfig
 } from './file-system.js';
 import { parseMarkdown, compileMarkdown } from './parser.js';
-
-// Local sync-bridge endpoint (see functions/sync_bridge_server.js in the
-// boomwacht repo). Only reachable when that project's companion server is
-// running; the Sync button no-ops gracefully otherwise.
-const SYNC_BRIDGE_URL = 'http://localhost:8799/sync';
 import { renderSidebar } from './components/sidebar.js';
 import { renderBoard } from './components/kanban.js';
 import { initModal, initConfirmDeleteModal } from './components/modal.js';
@@ -144,7 +140,8 @@ export async function addProjectHandle(handle, type = 'file') {
   let projectData = { title: label, preamble: [], columns: [], postamble: [], hasHeadings: false };
   let fileName = null;
   let activeFileHandle = null;
-  
+  let syncUrl = null;
+
   if (permissionGranted) {
     try {
       if (type === 'directory') {
@@ -155,11 +152,16 @@ export async function addProjectHandle(handle, type = 'file') {
         }
         fileName = todoDetails.fileName;
         activeFileHandle = todoDetails.fileHandle;
+        // Only directory connections can discover a sibling sync config —
+        // a bare file handle has no parent to look in. This is the
+        // isolation boundary: a project only gets a working Sync button if
+        // it explicitly declares its own endpoint via .mdtodo-sync.json.
+        syncUrl = await readSyncConfig(handle);
       } else {
         fileName = handle.name;
         activeFileHandle = handle;
       }
-      
+
       const content = await readFileContent(activeFileHandle);
       projectData = parseMarkdown(content, fileName);
     } catch (err) {
@@ -171,7 +173,7 @@ export async function addProjectHandle(handle, type = 'file') {
     // Permission denied
     return;
   }
-  
+
   const project = {
     id,
     label,
@@ -180,7 +182,8 @@ export async function addProjectHandle(handle, type = 'file') {
     handle,
     fileName,
     data: projectData,
-    permissionGranted
+    permissionGranted,
+    syncUrl
   };
   
   state.projects.push(project);
@@ -265,6 +268,7 @@ export async function requestProjectPermission(project) {
       let fileHandle = null;
       if (project.type === 'directory') {
         fileHandle = await project.handle.getFileHandle(project.fileName, { create: false });
+        project.syncUrl = await readSyncConfig(project.handle);
       } else {
         fileHandle = project.handle;
       }
@@ -349,16 +353,32 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // Wire Sync button
+  // Wire Sync button — only ever calls the endpoint(s) explicitly declared
+  // by the currently active project(s) via their own .mdtodo-sync.json, so
+  // syncing one board can never fire against a different project's data.
   const syncBtn = document.getElementById('sync-btn');
   if (syncBtn) {
     syncBtn.addEventListener('click', async () => {
+      const activeSyncUrls = [...new Set(
+        state.projects
+          .filter((p) => state.selectedProjectIds.includes(p.id) && p.permissionGranted && p.syncUrl)
+          .map((p) => p.syncUrl)
+      )];
+
       const originalHTML = syncBtn.innerHTML;
+
+      if (activeSyncUrls.length === 0) {
+        syncBtn.textContent = 'No sync configured';
+        setTimeout(() => { syncBtn.innerHTML = originalHTML; }, 2000);
+        return;
+      }
+
       syncBtn.disabled = true;
       syncBtn.textContent = 'Syncing...';
       try {
-        const res = await fetch(SYNC_BRIDGE_URL, { method: 'POST' });
-        if (!res.ok) throw new Error(`Sync bridge returned ${res.status}`);
+        const results = await Promise.allSettled(activeSyncUrls.map((url) => fetch(url, { method: 'POST' })));
+        const failed = results.filter((r) => r.status === 'rejected' || !r.value.ok);
+        if (failed.length > 0) throw new Error(`${failed.length} of ${activeSyncUrls.length} sync endpoint(s) failed`);
         await reloadAllProjects();
       } catch (err) {
         console.error('Sync failed:', err);

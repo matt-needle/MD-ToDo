@@ -183,6 +183,27 @@ export async function scanDirectoryForTodo(dirHandle) {
 }
 
 /**
+ * Reads a project's `.mdtodo-sync.json` sidecar config, if present, to find
+ * the local sync endpoint that owns this project's data. Only possible for
+ * directory-connected projects (a bare file handle has no parent directory
+ * to look in) — this is intentional: a project only gets a working Sync
+ * button if it explicitly declares its own endpoint, so one project's sync
+ * can never accidentally fire against a different project's board/backend.
+ * @param {FileSystemDirectoryHandle} dirHandle
+ * @returns {Promise<string|null>} The sync URL, or null if none configured.
+ */
+export async function readSyncConfig(dirHandle) {
+  try {
+    const fileHandle = await dirHandle.getFileHandle('.mdtodo-sync.json', { create: false });
+    const content = await readFileContent(fileHandle);
+    const config = JSON.parse(content);
+    return typeof config.syncUrl === 'string' && config.syncUrl ? config.syncUrl : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
  * Reads content from a file handle.
  * @param {FileSystemFileHandle} handle 
  * @returns {Promise<string>} File content.
