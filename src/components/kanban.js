@@ -342,7 +342,7 @@ function renderTaskCard(task, project, colName) {
   // Title
   const title = document.createElement('div');
   title.className = 'card-title';
-  title.textContent = task.title;
+  title.textContent = task.title.replace(/#[\w-]+/g, '').trim();
   card.appendChild(title);
   
   // Subtasks progress

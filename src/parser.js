@@ -257,6 +257,9 @@ export function compileMarkdown(data) {
       }
     } else {
       lines.push(taskLine('', marker, task.hasCheckbox ?? true, task.completed, task.title));
+      if (task.description && task.description.length > 0) {
+        task.description.forEach(descLine => lines.push(descLine ? `  ${descLine}` : ''));
+      }
     }
 
     if (task.subtasks && task.subtasks.length > 0) {
