@@ -74,9 +74,9 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
             Pull
           </button>
-          <button id="push-btn" class="btn btn-secondary" title="Push the connected project's Backlog to its downstream tracker">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-            Push
+          <button id="devops-sync-btn" class="btn btn-secondary" title="Push new Backlog cards to the downstream tracker and reconcile Done status in both directions">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path><path d="M16 16h5v5"></path></svg>
+            Sync DevOps
           </button>
           <label class="toggle-control" id="theme-toggle-label" title="Toggle theme">
             <input type="checkbox" id="theme-toggle">
@@ -148,6 +148,13 @@
         <div class="form-group">
           <label for="task-tags-input">Tags (Space separated, start with #)</label>
           <input type="text" id="task-tags-input" placeholder="e.g. #bug #frontend #high-priority">
+        </div>
+
+        <div class="form-group form-group-checkbox">
+          <label class="checkbox-row" for="task-local-only-input">
+            <input type="checkbox" id="task-local-only-input">
+            <span>Local only — don't push to Azure DevOps</span>
+          </label>
         </div>
 
         <div class="modal-footer">

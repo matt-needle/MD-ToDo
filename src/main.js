@@ -358,13 +358,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // Wire Pull/Push buttons — each only ever calls the endpoint(s)
+  // Wire Pull/Sync DevOps buttons — each only ever calls the endpoint(s)
   // explicitly declared by the currently active project(s) via their own
   // .mdtodo-sync.json, so clicking one can never fire against a different
   // project's data. Structurally identical apart from which URL property
   // and button they use.
   wireSyncButton('pull-btn', 'pullUrl', 'No pull endpoint configured', 'Pulling...', 'Pull unavailable');
-  wireSyncButton('push-btn', 'pushUrl', 'No push endpoint configured', 'Pushing...', 'Push unavailable');
+  wireSyncButton('devops-sync-btn', 'pushUrl', 'No DevOps endpoint configured', 'Syncing...', 'DevOps sync unavailable');
 
   function wireSyncButton(buttonId, urlProperty, noConfigMessage, busyMessage, failureMessage) {
     const btn = document.getElementById(buttonId);
