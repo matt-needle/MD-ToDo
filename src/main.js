@@ -8,6 +8,11 @@ import {
   scanDirectoryForTodo
 } from './file-system.js';
 import { parseMarkdown, compileMarkdown } from './parser.js';
+
+// Local sync-bridge endpoint (see functions/sync_bridge_server.js in the
+// boomwacht repo). Only reachable when that project's companion server is
+// running; the Sync button no-ops gracefully otherwise.
+const SYNC_BRIDGE_URL = 'http://localhost:8799/sync';
 import { renderSidebar } from './components/sidebar.js';
 import { renderBoard } from './components/kanban.js';
 import { initModal, initConfirmDeleteModal } from './components/modal.js';
@@ -226,8 +231,31 @@ export function toggleProjectSelection(id) {
 }
 
 /**
+ * Re-reads every authorized project from disk and re-renders. Used after an
+ * external process (e.g. a sync script) has modified a connected file.
+ */
+export async function reloadAllProjects() {
+  for (const project of state.projects) {
+    if (!project.permissionGranted) continue;
+    try {
+      let fileHandle = null;
+      if (project.type === 'directory') {
+        fileHandle = await project.handle.getFileHandle(project.fileName, { create: false });
+      } else {
+        fileHandle = project.handle;
+      }
+      const content = await readFileContent(fileHandle);
+      project.data = parseMarkdown(content, project.fileName || project.name);
+    } catch (err) {
+      console.error(`Error reloading project ${project.label}:`, err);
+    }
+  }
+  renderApp();
+}
+
+/**
  * Requests browser permission for a restored project file/folder.
- * @param {object} project 
+ * @param {object} project
  */
 export async function requestProjectPermission(project) {
   const granted = await verifyPermission(project.handle, true);
@@ -318,6 +346,31 @@ document.addEventListener('DOMContentLoaded', async () => {
     hideCompletedToggle.addEventListener('change', (e) => {
       state.hideCompleted = e.target.checked;
       renderBoard();
+    });
+  }
+
+  // Wire Sync button
+  const syncBtn = document.getElementById('sync-btn');
+  if (syncBtn) {
+    syncBtn.addEventListener('click', async () => {
+      const originalHTML = syncBtn.innerHTML;
+      syncBtn.disabled = true;
+      syncBtn.textContent = 'Syncing...';
+      try {
+        const res = await fetch(SYNC_BRIDGE_URL, { method: 'POST' });
+        if (!res.ok) throw new Error(`Sync bridge returned ${res.status}`);
+        await reloadAllProjects();
+      } catch (err) {
+        console.error('Sync failed:', err);
+        syncBtn.textContent = 'Sync unavailable';
+        setTimeout(() => {
+          syncBtn.innerHTML = originalHTML;
+          syncBtn.disabled = false;
+        }, 2000);
+        return;
+      }
+      syncBtn.disabled = false;
+      syncBtn.innerHTML = originalHTML;
     });
   }
 });
