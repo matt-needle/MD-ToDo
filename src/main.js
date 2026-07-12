@@ -379,6 +379,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         const results = await Promise.allSettled(activeSyncUrls.map((url) => fetch(url, { method: 'POST' })));
         const failed = results.filter((r) => r.status === 'rejected' || !r.value.ok);
         if (failed.length > 0) throw new Error(`${failed.length} of ${activeSyncUrls.length} sync endpoint(s) failed`);
+        // A 200 response can still carry a partial result (e.g. Firestore
+        // pull succeeded but the Azure DevOps push failed) — log it so
+        // it's visible in devtools even though the board still reloads.
+        for (const r of results) {
+          if (r.status !== 'fulfilled') continue;
+          const body = await r.value.clone().json().catch(() => null);
+          if (body && !body.ok) console.warn('Sync completed with partial failure:', body);
+        }
         await reloadAllProjects();
       } catch (err) {
         console.error('Sync failed:', err);
