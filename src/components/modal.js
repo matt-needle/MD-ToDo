@@ -140,6 +140,7 @@ export function initModal() {
     activeTask.description = descLines;
     activeTask.tags = parsedTags;
     activeTask.subtasks = subtasks;
+    activeTask.localOnly = document.getElementById('task-local-only-input').checked;
     
     // Sync tags in title
     let cleanTitle = titleVal.replace(/#[\w-]+/g, '').trim();
@@ -235,7 +236,10 @@ export function openModal(task, projectId, columnName, isNew = false) {
   
   const tagsInput = document.getElementById('task-tags-input');
   tagsInput.value = task.tags ? task.tags.join(' ') : '';
-  
+
+  const localOnlyInput = document.getElementById('task-local-only-input');
+  localOnlyInput.checked = !!task.localOnly;
+
   const sublist = document.getElementById('subtasks-list');
   sublist.innerHTML = '';
   

@@ -91,7 +91,8 @@ export function parseMarkdown(text, fileName = 'Untitled') {
       hadBoldTitle,
       listType,
       hasCheckbox,
-      bulletChar
+      bulletChar,
+      localOnly: false
     };
   }
 
@@ -200,9 +201,21 @@ export function parseMarkdown(text, fileName = 'Untitled') {
     }
   }
 
-  // Cleanup descriptions: remove trailing empty lines
+  // Cleanup descriptions: remove trailing empty lines, and pull the hidden
+  // "local-only:true" marker line (if present) out into task.localOnly so it
+  // never shows up as literal text in the description editor.
   columns.forEach(col => {
     col.tasks.forEach(task => {
+      while (task.description.length > 0 && task.description[task.description.length - 1] === '') {
+        task.description.pop();
+      }
+
+      const markerIdx = task.description.findIndex(line => /^local-only:true$/i.test(line.trim()));
+      if (markerIdx !== -1) {
+        task.description.splice(markerIdx, 1);
+        task.localOnly = true;
+      }
+
       while (task.description.length > 0 && task.description[task.description.length - 1] === '') {
         task.description.pop();
       }
@@ -260,6 +273,12 @@ export function compileMarkdown(data) {
       if (task.description && task.description.length > 0) {
         task.description.forEach(descLine => lines.push(descLine ? `  ${descLine}` : ''));
       }
+    }
+
+    // Hidden marker read back by parseMarkdown into task.localOnly; also
+    // detected by boomwacht's push_todo_to_devops.js to skip the DevOps push.
+    if (task.localOnly) {
+      lines.push('  local-only:true');
     }
 
     if (task.subtasks && task.subtasks.length > 0) {

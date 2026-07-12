@@ -334,14 +334,34 @@ function renderTaskCard(task, project, colName) {
   // Header with project tag pill (using display label)
   const header = document.createElement('div');
   header.className = 'card-header';
-  
+
+  const headerLeft = document.createElement('div');
+  headerLeft.className = 'card-header-left';
+
+  const localOnlyBtn = document.createElement('button');
+  localOnlyBtn.type = 'button';
+  localOnlyBtn.className = `card-local-only-btn ${task.localOnly ? 'active' : ''}`;
+  localOnlyBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22.61 16.95A5 5 0 0 0 18 10h-1.26a8 8 0 0 0-7.05-6"></path><path d="M5 5a8 8 0 0 0 4 15h9a5 5 0 0 0 1.7-.3"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>`;
+  localOnlyBtn.title = task.localOnly
+    ? 'Local only — will not be pushed to Azure DevOps. Click to allow pushing again.'
+    : 'Keep local only — click to skip pushing this card to Azure DevOps.';
+  localOnlyBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    task.localOnly = !task.localOnly;
+    await saveProjectToDisk(project);
+    renderApp();
+  });
+
   const projectPill = document.createElement('span');
   projectPill.className = 'project-pill';
   projectPill.style.backgroundColor = getProjectColor(project.id);
   projectPill.style.color = '#fff';
   projectPill.textContent = project.label;
   projectPill.title = `${project.label} (${project.name})`;
-  
+
+  headerLeft.appendChild(localOnlyBtn);
+  headerLeft.appendChild(projectPill);
+
   const deleteBtn = document.createElement('button');
   deleteBtn.className = 'card-delete-btn';
   deleteBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>`;
@@ -351,7 +371,7 @@ function renderTaskCard(task, project, colName) {
     showDeleteConfirm(task, project, colName);
   });
 
-  header.appendChild(projectPill);
+  header.appendChild(headerLeft);
   header.appendChild(deleteBtn);
   card.appendChild(header);
   
