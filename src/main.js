@@ -3,7 +3,6 @@ import {
   removeStoredProject,
   saveProjectHandle,
   verifyPermission,
-  readFileContent,
   writeFileContent,
   scanDirectoryForTodo,
   readSyncConfig
@@ -143,6 +142,8 @@ export async function addProjectHandle(handle, type = 'file') {
   let pullUrl = null;
   let pushUrl = null;
 
+  let lastModified = null;
+
   if (permissionGranted) {
     try {
       if (type === 'directory') {
@@ -164,8 +165,9 @@ export async function addProjectHandle(handle, type = 'file') {
         activeFileHandle = handle;
       }
 
-      const content = await readFileContent(activeFileHandle);
-      projectData = parseMarkdown(content, fileName);
+      const file = await activeFileHandle.getFile();
+      projectData = parseMarkdown(await file.text(), fileName);
+      lastModified = file.lastModified;
     } catch (err) {
       console.error('Error reading project contents on add:', err);
       alert(`Error loading project: ${err.message}`);
@@ -186,7 +188,8 @@ export async function addProjectHandle(handle, type = 'file') {
     data: projectData,
     permissionGranted,
     pullUrl,
-    pushUrl
+    pushUrl,
+    lastModified
   };
   
   state.projects.push(project);
@@ -238,9 +241,21 @@ export function toggleProjectSelection(id) {
 
 /**
  * Re-reads every authorized project from disk and re-renders. Used after an
- * external process (e.g. a sync script) has modified a connected file.
+ * external process (e.g. a sync script) has modified a connected file — also
+ * called on a timer and on tab focus so those changes show up without a
+ * manual page refresh (which would force re-authorizing every connected
+ * folder/file, since the File System Access permission grant doesn't survive
+ * a reload).
+ *
+ * Skips the reparse+render for any project whose file hasn't actually
+ * changed since it was last read (compared via the file's lastModified
+ * timestamp), so a quiet polling tick with nothing new does no real work.
+ * Pass force:true to always reparse regardless (manual Refresh button,
+ * Pull/Sync DevOps buttons — those already know something may have changed).
+ * @param {{force?: boolean}} [options]
  */
-export async function reloadAllProjects() {
+export async function reloadAllProjects({ force = false } = {}) {
+  let anyChanged = force;
   for (const project of state.projects) {
     if (!project.permissionGranted) continue;
     try {
@@ -256,13 +271,18 @@ export async function reloadAllProjects() {
       } else {
         fileHandle = project.handle;
       }
-      const content = await readFileContent(fileHandle);
-      project.data = parseMarkdown(content, project.fileName || project.name);
+
+      const file = await fileHandle.getFile();
+      if (!force && project.lastModified === file.lastModified) continue;
+
+      project.data = parseMarkdown(await file.text(), project.fileName || project.name);
+      project.lastModified = file.lastModified;
+      anyChanged = true;
     } catch (err) {
       console.error(`Error reloading project ${project.label}:`, err);
     }
   }
-  renderApp();
+  if (anyChanged) renderApp();
 }
 
 /**
@@ -283,8 +303,9 @@ export async function requestProjectPermission(project) {
       } else {
         fileHandle = project.handle;
       }
-      const content = await readFileContent(fileHandle);
-      project.data = parseMarkdown(content, project.fileName || project.name);
+      const file = await fileHandle.getFile();
+      project.data = parseMarkdown(await file.text(), project.fileName || project.name);
+      project.lastModified = file.lastModified;
     } catch (err) {
       console.error('Error reloading project contents on authorization:', err);
     }
@@ -405,7 +426,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           const body = await r.value.clone().json().catch(() => null);
           if (body && !body.ok) console.warn(`${buttonId} completed with partial failure:`, body);
         }
-        await reloadAllProjects();
+        await reloadAllProjects({ force: true });
       } catch (err) {
         console.error(`${buttonId} failed:`, err);
         btn.textContent = failureMessage;
@@ -419,4 +440,24 @@ document.addEventListener('DOMContentLoaded', async () => {
       btn.innerHTML = originalHTML;
     });
   }
+
+  // Live-reflect external changes (any sync script, run any way) without a
+  // manual page refresh — a reload would also force re-authorizing every
+  // connected folder/file, since the File System Access permission grant
+  // doesn't survive one. Skipped mid-drag so a poll can't yank a card out
+  // from under an in-progress drag gesture.
+  const isDragInProgress = () =>
+    !!document.querySelector('.task-card.dragging, .column-header.column-dragging');
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && !isDragInProgress()) {
+      reloadAllProjects();
+    }
+  });
+
+  setInterval(() => {
+    if (document.visibilityState === 'visible' && !isDragInProgress()) {
+      reloadAllProjects();
+    }
+  }, 15000);
 });

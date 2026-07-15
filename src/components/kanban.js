@@ -123,7 +123,13 @@ export function renderBoard() {
   // 3. Render Columns
   sortedColumnNames.forEach(colName => {
     const colData = columnMap.get(colName);
-    
+
+    // Inbox is Firestore-sync-only (see sync_firestore_todo.js in the
+    // Boomwacht repo) — no manual "add task" button and no drag-drop into it
+    // from another column, so a card can never be manually "un-reviewed";
+    // the local-only toggle covers that case instead.
+    const isInboxColumn = colName.toLowerCase().trim() === 'inbox';
+
     const colEl = document.createElement('div');
     colEl.className = 'board-column';
     colEl.dataset.column = colName;
@@ -197,14 +203,18 @@ export function renderBoard() {
     titleWrapper.appendChild(count);
     
     const addBtn = document.createElement('button');
-    addBtn.className = 'column-add-task-btn';
-    addBtn.innerHTML = `
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>
-    `;
-    addBtn.title = `Add task to ${colName}`;
-    
+    if (!isInboxColumn) {
+      addBtn.className = 'column-add-task-btn';
+      addBtn.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>
+      `;
+      addBtn.title = `Add task to ${colName}`;
+    }
+
     headerEl.appendChild(titleWrapper);
-    headerEl.appendChild(addBtn);
+    if (!isInboxColumn) {
+      headerEl.appendChild(addBtn);
+    }
     colEl.appendChild(headerEl);
     
     // Make column header title draggable for column reordering
@@ -274,13 +284,22 @@ export function renderBoard() {
       }
     });
     
-    // Drag & Drop Column Events
+    // Drag & Drop Column Events. Cards may leave Inbox (drag out to
+    // Backlog/Done) but nothing may be dropped into it from another column
+    // — see isInboxColumn above.
     cardsContainer.addEventListener('dragover', (e) => {
+      const draggingCard = document.querySelector('.task-card.dragging');
+      const incomingFromElsewhere = draggingCard && draggingCard.dataset.column !== colName;
+
+      if (isInboxColumn && incomingFromElsewhere) {
+        e.dataTransfer.dropEffect = 'none';
+        return;
+      }
+
       e.preventDefault();
       colEl.classList.add('drag-over');
-      
+
       const afterElement = getDragAfterElement(cardsContainer, e.clientY);
-      const draggingCard = document.querySelector('.task-card.dragging');
       if (draggingCard) {
         if (afterElement == null) {
           cardsContainer.appendChild(draggingCard);
@@ -289,25 +308,27 @@ export function renderBoard() {
         }
       }
     });
-    
+
     cardsContainer.addEventListener('dragleave', () => {
       colEl.classList.remove('drag-over');
     });
-    
+
     cardsContainer.addEventListener('drop', async (e) => {
       e.preventDefault();
       colEl.classList.remove('drag-over');
-      
+
       const rawData = e.dataTransfer.getData('text/plain');
       if (!rawData) return;
-      
+
       try {
         const { taskId, projectId, sourceCol } = JSON.parse(rawData);
         const targetColName = colName;
-        
+
+        if (isInboxColumn && sourceCol !== targetColName) return;
+
         const children = [...cardsContainer.querySelectorAll('.task-card')];
         const targetIndex = children.findIndex(child => child.dataset.id === taskId);
-        
+
         if (sourceCol === targetColName) {
           await handleTaskReorder(projectId, taskId, targetColName, targetIndex);
         } else {
@@ -492,10 +513,21 @@ async function handleTaskMove(projectId, taskId, sourceColName, targetColName, t
   if (taskIndex === -1) return;
   
   const [task] = sourceCol.tasks.splice(taskIndex, 1);
-  
+
   // Set completion
   task.completed = targetColName.toLowerCase().trim() === 'done' || targetColName.toLowerCase().trim() === 'completed';
-  
+
+  // Dragging a card into Backlog is the review/approval gesture (Boomwacht's
+  // sync_devops_todo.js only pushes cards sitting in Backlog) — clear any
+  // default local-only flag so the move alone is enough to approve it for
+  // push. Users can still re-apply the local-only toggle afterward for a
+  // specific card they want to keep out of Azure DevOps despite reviewing
+  // and keeping it. (Cards can't be dragged back into Inbox at all — see the
+  // drop handler below — so there's no symmetric re-flagging case here.)
+  if (targetColName.toLowerCase().trim() === 'backlog') {
+    task.localOnly = false;
+  }
+
   const insertIndex = targetIndex === -1 ? targetCol.tasks.length : targetIndex;
   targetCol.tasks.splice(insertIndex, 0, task);
   
